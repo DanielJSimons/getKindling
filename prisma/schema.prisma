@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * ----------  Enums  ----------
+ */
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SlotPos {
+  BANNER
+  SIDEPANEL
+  INLINE
+}
+
+enum SponsStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+}
+
+enum PayoutStatus {
+  SCHEDULED
+  PAID
+  FAILED
+}
+
+/**
+ * ----------  Models  ----------
+ */
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String?
+  role           Role     @default(USER)
+  stripeId       String?
+  connectId      String?
+
+  /* NEW ↓ */
+  emailVerified  DateTime?        // required by NextAuth email provider
+
+  /* relations */
+  sites          Site[]           @relation("SiteOwner")
+  sponsorships   Sponsorship[]    @relation("Sponsor")
+  accounts       Account[]
+  sessions       Session[]
+
+  createdAt      DateTime @default(now())
+}
+
+model Site {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation("SiteOwner", fields: [ownerId], references: [id])
+  name      String
+  url       String   @unique
+  adSlots   AdSlot[]
+  payouts   Payout[] // ← add this line
+  createdAt DateTime @default(now())
+}
+
+model AdSlot {
+  id           String        @id @default(cuid())
+  siteId       String
+  site         Site          @relation(fields: [siteId], references: [id])
+  position     SlotPos
+  priceUsd     Int
+  active       Boolean       @default(true)
+  // Share-of-voice related fields
+  maxSponsors  Int           @default(1)  // limits concurrency (0 = exclusive)
+  allowCustomShare Boolean   @default(false) // whether sponsors can choose custom share percentage
+  sponsorships Sponsorship[]
+}
+
+model Sponsorship {
+  id         String      @id @default(cuid())
+  sponsorId  String
+  sponsor    User        @relation("Sponsor", fields: [sponsorId], references: [id])
+  adSlotId   String
+  adSlot     AdSlot      @relation(fields: [adSlotId], references: [id])
+  checkoutId String?
+  status     SponsStatus @default(PENDING)
+  startsAt   DateTime
+  endsAt     DateTime
+  // Share-of-voice field
+  sharePct   Int         @default(100) // Percentage of share of voice (25 = 25%)
+  creative   String?     // URL or HTML snippet
+}
+
+model Payout {
+  id             String       @id @default(cuid())
+  siteId         String
+  site           Site         @relation(fields: [siteId], references: [id])
+  stripePayoutId String?
+  amountUsd      Int
+  status         PayoutStatus
+  createdAt      DateTime     @default(now())
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id])
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  expires      DateTime
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
